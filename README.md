@@ -2,7 +2,10 @@
 It tries to connect to other peers within it's connection file and adds unknown peers to it's own list.
 
 
-To start, go to root folder and run the following command:
+To get started, go to root folder and run the following commands:
+```
+npm install
+```
 ```
 node app.js {{port}}
 ```

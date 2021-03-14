@@ -1,15 +1,12 @@
-
 const arguments = process.argv.splice(2)
 const port = arguments[0]
-const host = 'localhost'
+const host = require('ip').address()
 const address = `${host}:${port}`
 module.exports = { address, port }
 
 const express = require('express')
 const http = require('http')
-const { readPeers, appendPeers, removePeer } = require('./storage')
-
-
+const { readPeers, tryAppendPeers, removePeer } = require('./storage')
 
 const app = express()
 
@@ -20,27 +17,26 @@ app.listen(port, () => {
 app.get('/health', async (req, res) => res.send())
 
 app.get('/get-peers', async (req, res) => {
+  tryAppendPeers([req.query.callback])
   res.send(await readPeers())
 })
 
 async function fetchPeers(endpoint) {
   return new Promise((resolve, reject) => {
-    http.get(`http://${endpoint}/get-peers`, (res) => {
+    http.get(`http://${endpoint}/get-peers?callback=${address}`, (res) => {
       var body = [];
-      res.on('data', function (chunk) {
+      res.on('data', (chunk) => {
         body.push(chunk);
       });
 
-      res.on('end', function () {
+      res.on('end', () => {
         try {
           resolve(JSON.parse(Buffer.concat(body).toString()));
         } catch (e) {
           reject(e);
         }
       });
-    }).on('error', (error) => {
-      console.log(`Error while fetching peers from ${endpoint}.`)
-    })
+    }).on('error', () => onPeerError(endpoint))
   })
 }
 
@@ -48,11 +44,10 @@ async function fetchPeers(endpoint) {
 setInterval(async () => {
   const knownPeers = await readPeers()
   for (const endpoint of knownPeers) {
-    const response = await fetchPeers(endpoint)
-    const unkownPeers = response.filter(x => !knownPeers.includes(x) && x !== address)
-    if (!!unkownPeers.length) {
-      appendPeers(unkownPeers)
-    }
+    fetchPeers(endpoint)
+      .then(res => {
+        tryAppendPeers(res)
+      })
   }
 }, 10000);
 
@@ -60,9 +55,12 @@ setInterval(async () => {
 setInterval(async () => {
   const knownPeers = await readPeers()
   for (const endpoint of knownPeers) {
-    http.get(`http://${endpoint}/health`).on('error', (error) => {
-      console.log(`Error while fetching peers from ${endpoint}. Removing...`)
-      removePeer(endpoint)
-    })
+    http.get(`http://${endpoint}/health`)
+      .on('error', () => onPeerError(endpoint))
   }
 }, 5000);
+
+function onPeerError(endpoint) {
+  console.log(`Error while fetching peers from ${endpoint}. Removing...`)
+  removePeer(endpoint)
+}

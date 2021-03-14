@@ -31,12 +31,20 @@ function removePeer(peer) {
   })
 }
 
-function appendPeers(peers) {
-  if (!peers.length) return
-  const data = peers.filter(x => x !== address).join('\r\n') + '\r\n'
-  fs.appendFile(file, data, { flag: 'a+' }, (err) => {
+function onlyUnique(value, index, self) {
+  return self.indexOf(value) === index;
+}
+
+async function tryAppendPeers(proposed) {
+  if (!proposed.length) return
+
+  const knownPeers = await readPeers()
+  proposed = [...proposed, ...knownPeers].filter(onlyUnique)
+  proposed = proposed.filter(x => x !== address)
+
+  fs.writeFile(file, proposed.join('\r\n'), (err) => {
     if (err) throw err
   })
 }
 
-module.exports = { readPeers, removePeer, appendPeers }
+module.exports = { readPeers, removePeer, tryAppendPeers }

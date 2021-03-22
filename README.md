@@ -1,6 +1,5 @@
 ### [Simple P2P server developed as a part of TalTech's course ITI0215.](http://lambda.ee/wiki/Vorgurakendused_2_prax_1_2021_kevad)
-Program consists of P2P nodes, each functioning as both a server and a client. It maintains a list of known nodes who it tries to connect to and distribute information with.
-To do that, it sends and receives HTTP requests, handles them and stores received data in .txt files.
+This program is a node of possibly bigger P2P network, where each node functions both as a server and a client. It maintains a list of known nodes who it tries to connect to and distribute information with. To do that, it sends and receives HTTP requests, handles them and stores received data in .txt files.
 
 To get started, go to root folder and run the following commands:
 ```

@@ -10,23 +10,51 @@ const peerFile = `connections/peers-${port}.txt`
 const blockFile = `blocks/blocks-${port}.txt`
 
 async function tryAppendPeers(proposed) {
-  const knownPeers = await getPeers()
-  const newPeers = proposed.filter(x => !knownPeers.includes(x) && x !== address)
-  if (!newPeers.length) return false
+  letwasSuccess = false
+  let releaseCb
 
-  const join = newPeers.join('\r\n')
-  const lines = knownPeers.length ? `\r\n${join}` : join
-  return await appendLines(peerFile, lines)
+  await lockfile.lock(peerFile, { retries: 3, stale: 5000 })
+    .then(async (release) => {
+      releaseCb = release
+      const knownPeers = await getPeers()
+      const newPeers = proposed.filter(x => !knownPeers.includes(x) && x !== address)
+      if (!newPeers.length) return false
+
+      const join = newPeers.join('\r\n')
+      const lines = knownPeers.length ? `\r\n${join}` : join
+      wasSuccess = appendLines(peerFile, lines)
+      release()
+    })
+    .catch((e) => {})
+    .finally(() => {
+      if (releaseCb) releaseCb().catch((err) => {})
+    })
+
+  return wasSuccess
 }
 
 async function tryAppendToLedger(proposed) {
-  const knownBlocks = await getLedger()
-  const newBlocks = proposed.filter(x => !knownBlocks.some(y => y.hash === x.hash))
-  if (!newBlocks.length) return false
+  wasSuccess = false
+  let releaseCb
 
-  const join = newBlocks.map(b => JSON.stringify(b)).join('\r\n')
-  const lines = knownBlocks.length ? `\r\n${join}` : join
-  return await appendLines(blockFile, lines)
+  await lockfile.lock(blockFile, { retries: 3, stale: 5000 })
+    .then(async (release) => {
+      releaseCb = release
+      const knownBlocks = await getLedger()
+      const newBlocks = proposed.filter(x => !knownBlocks.some(y => y.hash === x.hash))
+      if (!newBlocks.length) return false
+
+      const join = newBlocks.map(b => JSON.stringify(b)).join('\r\n')
+      const lines = knownBlocks.length ? `\r\n${join}` : join
+      wasSuccess = appendLines(blockFile, lines)
+      release()
+    })
+    .catch((e) => {})
+    .finally(() => {
+      if (releaseCb) releaseCb().catch((err) => {})
+    })
+
+  return wasSuccess
 }
 
 async function getLedger(fromHash = null) {
@@ -78,19 +106,14 @@ async function readLines(filePath, toObjects = false) {
   return lines
 }
 
-async function appendLines(filePath, lines) {
-  let wasSuccess = false
-
-  await lockfile.lock(filePath)
-    .then((release) => {
-      fs.appendFileSync(filePath, lines, { flag: 'a+' })
-      console.log(`\r\nSuccessfully appended to ${filePath}\r\n${lines.trim()}.`)
-      wasSuccess = true
-      release();
-    })
-    .catch((e) => console.error(e))
-
-  return wasSuccess
+function appendLines(filePath, lines) {
+  try {
+    fs.appendFileSync(filePath, lines, { flag: 'a+' })
+    console.log(`\r\nSuccessfully appended to ${filePath}\r\n${lines.trim()}.`)
+    return true
+  } catch {
+    return false
+  }
 }
 
 module.exports = { getPeers, removePeer, tryAppendPeers, getLedger, tryAppendToLedger }

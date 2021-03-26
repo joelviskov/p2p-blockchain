@@ -45,7 +45,7 @@ app.get('/get-block/:hash', async (req, res) => {
 
 app.post('/transaction', async (req, res) => {
   console.log(`\r\nReceived transaction.\r\n${JSON.stringify(req.body)}`)
-  const wasSuccess = await distributeTransaction(req.body)
+  const wasSuccess = await distributeTransaction(req.body, req.query.ip)
   if (wasSuccess) {
     res.send('Added and distributed.')
     return
@@ -53,13 +53,14 @@ app.post('/transaction', async (req, res) => {
   res.send("Ignored.")
 })
 
-async function distributeTransaction(transaction) {
+async function distributeTransaction(transaction, origin) {
   // Try adding to yourself and if it's new, broadcast to all.
   const wasSuccess = await tryAppendToLedger([transaction])
   if (wasSuccess) {
-    for (const node of await getPeers()) {
+    const peers = await getPeers()
+    for (const node of peers.filter(x => x !== origin)) {
       console.log(`\r\nDistributing transaction ${transaction.hash} to ${node}.`)
-      axios.post(`http://${node}/transaction`, transaction)
+      axios.post(`http://${node}/transaction?ip=${address}`, transaction)
         .catch((err) => onPeerError(node, err))
     }
   }

@@ -2,7 +2,7 @@ const arguments = process.argv.splice(2)
 const port = arguments[0]
 const host = require('ip').address()
 const address = `${host}:${port}`
-module.exports = { address, port }
+module.exports = { host, address, port }
 
 const crypto = require('crypto');
 const { getPeers, tryAppendPeers, removePeer, getLedger, tryAppendToLedger } = require('./storage')
@@ -33,39 +33,39 @@ app.get('/get-blocks', async (req, res) => {
 })
 
 app.get('/get-blocks/:hash', async (req, res) => {
-  const blocks = await getLedger(req.params['hash'])
+  const fromHash = req.params['hash']
+  const blocks = await getLedger(fromHash)
   res.send(blocks)
 })
 
 app.get('/get-block/:hash', async (req, res) => {
-  const blocks = await getLedger(hash)
-  const block = blocks.find(x => x.hash == req.params['hash'])
-  res.send(block)
+  const blockHash = req.params['hash']
+  const blocks = await getLedger(blockHash)
+  res.send(blocks[0])
 })
 
 app.post('/transaction', async (req, res) => {
-  console.log(`\r\nReceived transaction.\r\n${JSON.stringify(req.body)}`)
-  const wasSuccess = await distributeTransaction(req.body, req.query.ip)
-  if (wasSuccess) {
+  const transactions = req.body
+  const block = await createBlock(transactions)
+  axios.post(`http://${address}/block?ip=${address}`, block).catch((err) => onPeerError(node, err))
+  res.send('Added and distributed.')
+})
+
+app.post('/block', async (req, res) => {
+  const block = req.body
+  const wasAdded = await tryAppendToLedger([block])
+  if (wasAdded) {
+    const peers = await getPeers()
+    for (const node of peers.filter(x => x !== req.query.ip)) {
+      axios.post(`http://${node}/block?ip=${address}`, block)
+        .catch((err) => onPeerError(node, err))
+    }
+
     res.send('Added and distributed.')
     return
   }
   res.send("Ignored.")
 })
-
-async function distributeTransaction(transaction, origin) {
-  // Try adding to yourself and if it's new, broadcast to all.
-  const wasSuccess = await tryAppendToLedger([transaction])
-  if (wasSuccess) {
-    const peers = await getPeers()
-    for (const node of peers.filter(x => x !== origin)) {
-      console.log(`\r\nDistributing transaction ${transaction.hash} to ${node}.`)
-      axios.post(`http://${node}/transaction?ip=${address}`, transaction)
-        .catch((err) => onPeerError(node, err))
-    }
-  }
-  return wasSuccess
-}
 
 // Fetch unknown connected peers on X interval.
 setInterval(async () => {
@@ -85,45 +85,39 @@ setInterval(async () => {
 
 // Fetch full ledger on X interval.
 setInterval(async () => {
+  const endpoint = await getLedgerEndpoint()
   for (const node of await getPeers()) {
-    const url = await getLedgerEndpoint(node)
-    await axios.get(url)
+    await axios.get(`http://${node}/${endpoint}`)
       .then(async (response) => await tryAppendToLedger(response.data))
       .catch((err) => onPeerError(node, err))
   }
 }, 5000);
 
-async function getLedgerEndpoint(node) {
+async function getLedgerEndpoint() {
   const ledger = await getLedger()
-  let base = `http://${node}/get-blocks`
+  let base = `get-blocks`
   if (ledger.length) {
-    const lastHash = ledger.slice(-1)[0].hash
+    const lastHash = ledger.slice(-1)[0].previousHash
     base += `/${lastHash}`
   }
   return base
 }
 
-function createTransaction() {
-  const payload = { timestamp: Date.now() }
-  const transaction = {
-    hash: crypto.createHash('sha256').update(JSON.stringify(payload)).digest('hex'),
-    data: payload,
+async function createBlock(transactions) {
+  const ledger = await getLedger()
+  const index = ledger.length
+  return {
+    index,
+    previousHash: index > 0 ? hash(ledger[index - 1]) : null,
+    transactions,
+    timestamp: Date.now()
   }
-  console.log(`\r\nCreated transaction:\r\n${JSON.stringify(transaction)}`)
-  distributeTransaction(transaction)
 }
 
-// Create a new transaction on random interval, to simulate real-world.
-(function loop() {
-  var rand = Math.round(Math.random() * 100000) + 10000
-  setTimeout(function () {
-    createTransaction()
-    loop();
-  }, rand);
-}());
+function hash(block) {
+  return crypto.createHash('sha256').update(JSON.stringify(block)).digest('hex')
+}
 
 function onPeerError(endpoint, error) {
-  console.error(`\r\nLost connection to ${endpoint}. Removing...`)
-  console.error(error)
   removePeer(endpoint)
 }

@@ -1,16 +1,17 @@
 const readline = require('readline');
 const fs = require('fs')
 const lockfile = require('proper-lockfile');
-const { port, address } = require('./app')
+const { host, port, address } = require('./app')
 
 // Contains peers of {host}:{port}
 const peerFile = `connections/peers-${port}.txt`
+const mainNode = `${host}:3000`
 
 // Contains blocks of { hash, timestamp }
 const blockFile = `blocks/blocks-${port}.txt`
 
 async function tryAppendPeers(proposed) {
-  letwasSuccess = false
+  let wasSuccess = false
   let releaseCb
 
   await lockfile.lock(peerFile, { retries: 3, stale: 5000 })
@@ -23,7 +24,6 @@ async function tryAppendPeers(proposed) {
       const join = newPeers.join('\r\n')
       const lines = knownPeers.length ? `\r\n${join}` : join
       wasSuccess = appendLines(peerFile, lines)
-      release()
     })
     .catch((e) => {})
     .finally(() => {
@@ -41,13 +41,12 @@ async function tryAppendToLedger(proposed) {
     .then(async (release) => {
       releaseCb = release
       const knownBlocks = await getLedger()
-      const newBlocks = proposed.filter(x => !knownBlocks.some(y => y.hash === x.hash))
+      const newBlocks = proposed.filter(x => !knownBlocks.some(y => y.previousHash === x.previousHash))
       if (!newBlocks.length) return false
 
       const join = newBlocks.map(b => JSON.stringify(b)).join('\r\n')
       const lines = knownBlocks.length ? `\r\n${join}` : join
       wasSuccess = appendLines(blockFile, lines)
-      release()
     })
     .catch((e) => {})
     .finally(() => {
@@ -58,17 +57,32 @@ async function tryAppendToLedger(proposed) {
 }
 
 async function getLedger(fromHash = null) {
+  const folder = blockFile.split('/')[0]
+  if (!fs.existsSync(folder)) {
+    fs.mkdirSync(folder);
+  }
+
   let blocks = await readLines(blockFile, true)
 
   if (fromHash) {
-    const fromBlock = blocks.find(x => x.hash === fromHash)
-    blocks = blocks.slice(blocks.indexOf(fromBlock))
+    const fromBlock = blocks.find(x => x.previousHash === fromHash)
+    const fromIndex = blocks.indexOf(fromBlock) - 1
+    blocks = blocks.slice(fromIndex)
   }
 
   return blocks
 }
 
 async function getPeers() {
+  const folder = peerFile.split('/')[0]
+  if (!fs.existsSync(folder)) {
+    fs.mkdirSync(folder);
+  }
+
+  if (!fs.existsSync(peerFile) && address !== mainNode) {
+    appendLines(peerFile, mainNode)
+  }
+
   return await readLines(peerFile)
 }
 
@@ -90,10 +104,6 @@ function removePeer(peer) {
 }
 
 async function readLines(filePath, toObjects = false) {
-  const folder = filePath.split('/')[0]
-  if (!fs.existsSync(folder)) {
-    fs.mkdirSync(folder);
-  }
 
   const fileStream = fs.createReadStream(filePath, { flags: 'a+' });
   const lineStream = readline.createInterface({ input: fileStream, crlfDelay: Infinity });
@@ -109,7 +119,6 @@ async function readLines(filePath, toObjects = false) {
 function appendLines(filePath, lines) {
   try {
     fs.appendFileSync(filePath, lines, { flag: 'a+' })
-    console.log(`\r\nSuccessfully appended to ${filePath}\r\n${lines.trim()}.`)
     return true
   } catch {
     return false

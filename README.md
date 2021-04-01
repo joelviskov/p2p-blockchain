@@ -17,3 +17,56 @@ For example if there is peer running locally on port 3000, a new line has to be 
 
 Server also generates new transactions and distributes them to other peers, simulating a ledger.
 Ledger is maintained in `blocks-{{port}}.txt` file under `blocks` folder.
+
+
+## API
+
+### GET /health 
+RESPONSE: 200
+
+
+### GET /get-peers?ip=:ip
+RESPONSE: `["192.168.2.145:3000", "192.168.2.145:3001"]`
+
+
+### POST /block?ip=:ip
+REQUEST: 
+```
+{"index":3,"previousHash":"fc26dda85f2cde610da7a99197545cb7e706116a9bcf84a17f0fa2e7b7c7720b","transactions":[{"to":"Joosep"}],"timestamp":1617254169144}
+```
+RESPONSE: `200 - 'Added and distributed.' | 'Ignored.'`
+
+### POST /transaction?ip=:ip
+REQUEST: 
+```
+{"transactions": [{"to":"Joosep"}]}
+```
+RESPONSE: `200 - 'Added and distributed.' | 'Ignored.'`
+
+
+### GET /get-blocks
+RESPONSE: 
+```
+[
+  {"index":0,"previousHash":null,"transactions":[{"to":"Joosep"}],"timestamp":1617254169144},
+  {"index":1,"previousHash":"fb021aaf5a4c7c087aadb126a7981114f1e9a86eeffea7539e9bef9470600d96","transactions":[{"to":"Joel"}],"timestamp":1617254240128},
+  {"index":2,"previousHash":"2b6e94bfdb4615ddf7629d4cc9ad80fb74da00506bc249e250ed140c62592111","transactions":[{"to":"Joonas"}],"timestamp":1617254244048}
+]
+```
+
+
+### GET /get-block/:hash
+RESPONSE: 
+```
+{"index":1,"previousHash":"fb021aaf5a4c7c087aadb126a7981114f1e9a86eeffea7539e9bef9470600d96","transactions":[{"to":"Joel"}],"timestamp":1617254240128},
+```
+
+
+### GET /get-blocks/:hash
+RESPONSE: 
+```
+[
+  {"index":1,"previousHash":"fb021aaf5a4c7c087aadb126a7981114f1e9a86eeffea7539e9bef9470600d96","transactions":[{"to":"Joel"}],"timestamp":1617254240128},
+  {"index":2,"previousHash":"2b6e94bfdb4615ddf7629d4cc9ad80fb74da00506bc249e250ed140c62592111","transactions":[{"to":"Joonas"}],"timestamp":1617254244048}
+]
+```

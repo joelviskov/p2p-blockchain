@@ -6,7 +6,7 @@ To get started, go to root folder and run the following commands:
 npm install
 ```
 ```
-node app.js {{port}}
+npx ts-node entrypoint.ts {{port}}
 ```
 ... where {{port}} is replaced by whichever port you want the server to listen on.
 
@@ -39,9 +39,12 @@ RESPONSE: `200 - 'Added and distributed.' | 'Ignored.'`
 ### POST /transaction?ip=:ip
 REQUEST: 
 ```
-{"transactions": [{"to":"Joosep"}]}
+{ "from": "Joe", "to": "Joosep", "amount": 10 }
 ```
-RESPONSE: `200 - 'Added and distributed.' | 'Ignored.'`
+RESPONSE: `200 - 'Transaction pending.' | '400 - 'Bad Request.'`
+
+### POST /create-block
+RESPONSE: `200 - 'Added and distributed.' | 'Nothing pending.'`
 
 
 ### GET /get-blocks

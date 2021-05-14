@@ -1,14 +1,14 @@
 import { createHash } from './utilities'
 import merkle from 'merkle'
 import { createSign, createVerify, generateKeyPairSync } from 'crypto'
-import { KeyObject } from 'node:crypto';
+
 export const {
   privateKey: privateKeyObject,
   publicKey: publicKeyObject,
 } = generateKeyPairSync('ec', { namedCurve: 'sect239k1' });
 
 export const publicKey = publicKeyObject.export({ format: 'pem', type: 'spki' }).toString()
-console.log(publicKey)
+console.log(`\n${JSON.stringify(publicKey)}`)
 
 export interface Storage<T> {
   readAsync: () => Promise<T[]>

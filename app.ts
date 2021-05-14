@@ -11,6 +11,7 @@ import client from "./client"
 import { PeerStorage, BlockStorage } from "./storage"
 import { Block, QueryParams, Transaction } from "./types"
 import { createBlock, isValidChain } from './blockchain'
+import _ from 'lodash'
 
 const app = express()
 
@@ -67,16 +68,18 @@ app.post('/new-transaction', async (req: ExpressRequest, res: ExpressResponse) =
 
 app.post('/transaction', async (req: ExpressRequest, res: ExpressResponse) => {
   const request: Record<string, Transaction> = req.body
-  for (const signature in request) {
-    const transaction = request[signature]
-    if (!transaction.from || Transaction.verify(signature, transaction)) {
-      pendingTransactions = { ...pendingTransactions, ...request }
-      res.send('Transaction accepted.')
-      return
+  try {
+    for (const signature in request) {
+      const transaction = request[signature]
+      if (!transaction.from || Transaction.verify(signature, transaction)) {
+        pendingTransactions = { ...pendingTransactions, ...request }
+        res.send('Transaction accepted.')
+        return
+      }
     }
-  }
+  } catch { }
 
-  res.status(400).send('Failed to verify transaction.')
+  res.send('Failed to verify transaction.')
 })
 
 app.post('/create-block', async (req: ExpressRequest, res: ExpressResponse) => {
@@ -143,8 +146,7 @@ setInterval(async () => {
   for (const node of await PeerStorage.readAsync()) {
     await client.get(`http://${node}/get-blocks`)
       .then(async (response: AxiosResponse<Block[]>) => {
-        const ledger = response.data
-        if (!isLedgerValid || (isValidChain(ledger) && ledger.length > ourLedger.length)) {
+        if (isValidChain(response.data) && response.data.length) {
           otherLedgers.push(response.data)
         }
       })
@@ -152,12 +154,31 @@ setInterval(async () => {
   }
 
   if (otherLedgers.length) {
-    console.log('Found longer blockchain.')
     const longestLedger = otherLedgers.sort((a, b) => b.length - a.length)[0]
-    await BlockStorage.empty()
-    await BlockStorage.tryAppendAsync(longestLedger)
+    if (isBetterLedger(ourLedger, longestLedger)) {
+      await BlockStorage.empty()
+      await BlockStorage.tryAppendAsync(longestLedger)
+    }
   }
 }, 5000);
+
+const isBetterLedger = (ours: Block[], theirs: Block[]) => {
+  if (theirs.length > ours.length) {
+    return true
+  }
+
+  if (theirs.length == ours.length) {
+    const hasMoreWork = _.sumBy(theirs, x => x.transactions.length) > _.sumBy(ours, x => x.transactions.length)
+    if (hasMoreWork) return true
+
+    const theirLast = theirs[theirs.length - 1]
+    const ourLast = ours[ours.length - 1]
+    const isNewer = new Date(theirLast.timestamp) > new Date(ourLast.timestamp)
+    if (isNewer) return true
+  }
+
+  return false
+}
 
 const onPeerError = (peer: string, error: AxiosError) => {
   PeerStorage.remove([peer])

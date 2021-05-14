@@ -79,6 +79,9 @@ const getPeers = async (): Promise<string[]> => {
   const folder = peerFile.split('/')[0]
   if (!fs.existsSync(folder)) {
     fs.mkdirSync(folder)
+  }
+
+  if (!fs.existsSync(peerFile)) {
     if (address !== masterNode) {
       appendLines(peerFile, masterNode)
     }
@@ -105,22 +108,20 @@ const removePeers = async (toRemove: string[]) => {
     })
 }
 
-const deleteFile = (pathName: string) => {
-  fs.unlink(pathName, (err) => {
-    if (err) console.error(err)
-  })
+const emptyFile = (pathName: string) => {
+  fs.writeFile(pathName, '', () => { /* Ignore */ })
 }
 
 export const PeerStorage: StringStorage = {
   readAsync: getPeers,
   tryAppendAsync: tryAppendPeers,
   remove: removePeers,
-  deleteFile: () => deleteFile(peerFile),
+  empty: () => emptyFile(peerFile),
 }
 
 export const BlockStorage: LedgerStorage = {
   readAsync: getBlocks,
   readFromAsync: getBlocksFromHash,
   tryAppendAsync: tryAppendBlocks,
-  deleteFile: () => deleteFile(blockFile),
+  empty: () => emptyFile(blockFile),
 }

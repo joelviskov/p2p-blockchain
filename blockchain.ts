@@ -1,18 +1,19 @@
 import { BlockStorage } from "./storage";
 import { Block, Transaction } from "./types";
-import { createVerify } from 'crypto'
-import { sshKeys } from "./app";
-
-const GenesisHash = "000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f"
+import { createHash } from "./utilities";
 
 export const createBlock = async (transactions: Record<string, Transaction>): Promise<Block | null> => {
   const ledger = await BlockStorage.readAsync()
   const index = ledger.length
-  const previousHash = index > 0 ? Block.createHash(ledger[index - 1]) : GenesisHash
+  const previousHash = index > 0 ? createHash(Block.stringify(ledger[index - 1])) : undefined
 
   let legal_transactions: Transaction[] = []
   for (const signature in transactions) {
     const transaction = transactions[signature]
+    if (ledger.some(b => b.transactions.some(t => t == transaction))) {
+      continue // Don't add transactions that are already in the blockchain.
+    }
+
     if (await isLegalTransaction(signature, transaction)) {
       legal_transactions.push(transaction)
     }
@@ -38,14 +39,7 @@ const isLegalTransaction = async (signature: string, transaction: Transaction) =
     return false
   }
 
-  return isValidSignature(signature, transaction)
-}
-
-const isValidSignature = (signature: string, tranaction: Transaction) => {
-  const verify = createVerify('SHA256');
-  verify.write('some data to sign');
-  verify.end();
-  return verify.verify(sshKeys.publicKey, signature, 'hex')
+  return Transaction.verify(signature, transaction)
 }
 
 const getBalance = async (subject: string): Promise<number> => {
@@ -71,7 +65,7 @@ export const isValidChain = async (ledger: Block[]): Promise<boolean> => {
     const previousBlock = ledger[i - 1]
     const currentBlock = ledger[i]
 
-    if (currentBlock.hash != Block.createHash(currentBlock)) {
+    if (currentBlock.hash != createHash(Block.stringify(currentBlock))) {
       return false
     }
 

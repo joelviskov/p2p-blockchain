@@ -5,9 +5,6 @@ export const port = process.argv.splice(2)[0]
 export const host = ip.address()
 export const address = `${host}:${port}`
 
-import { generateKeyPairSync, createSign } from 'crypto'
-export const sshKeys = generateKeyPairSync('ec', { namedCurve: 'sect239k1' });
-
 import { AxiosError, AxiosResponse } from "axios"
 import express, { Request as ExpressRequest, Response as ExpressResponse } from "express"
 import client from "./client"
@@ -48,7 +45,7 @@ app.get('/get-block/:hash', async (req: ExpressRequest, res: ExpressResponse) =>
   res.send(blocks[0])
 })
 
-app.post('/transaction', async (req: ExpressRequest, res: ExpressResponse) => {
+app.post('/new-transaction', async (req: ExpressRequest, res: ExpressResponse) => {
   const transaction: Transaction = req.body
   if (!transaction) {
     res.status(400).send("Bad request!")
@@ -56,17 +53,41 @@ app.post('/transaction', async (req: ExpressRequest, res: ExpressResponse) => {
   }
 
   transaction.timestamp = new Date().toISOString()
-  const sign = createSign('SHA256');
-  sign.write('some data to sign');
-  sign.end();
-  const signature = sign.sign(sshKeys.privateKey, 'hex');
-  pendingTransactions = { ...pendingTransactions, [signature]: transaction }
+  const signature = Transaction.sign(transaction)
+  const newTransaction: Record<string, Transaction> = { [signature]: transaction }
+  pendingTransactions = { ...pendingTransactions, ...newTransaction }
   res.send('Transaction pending.')
+
+  // Broadcast new transaction for everyone
+  for (const node of await PeerStorage.readAsync()) {
+    client.post(`http://${node}/transaction`, newTransaction)
+      .catch((err: AxiosError) => onPeerError(node, err))
+  }
+})
+
+app.post('/transaction', async (req: ExpressRequest, res: ExpressResponse) => {
+  const request: Record<string, Transaction> = req.body
+  for (const signature in request) {
+    const transaction = request[signature]
+    if (!transaction.from || Transaction.verify(signature, transaction)) {
+      pendingTransactions = { ...pendingTransactions, ...request }
+      res.send('Transaction accepted.')
+      return
+    }
+  }
+
+  res.status(400).send('Failed to verify transaction.')
 })
 
 app.post('/create-block', async (req: ExpressRequest, res: ExpressResponse) => {
   if (!Object.keys(pendingTransactions).length) {
-    res.send("Nothing pending.")
+    res.status(400).send("Nothing pending.")
+    return
+  }
+
+  const ledger = await BlockStorage.readAsync()
+  if (!isValidChain(ledger)) {
+    res.status(400).send('Chain is corrupt and new block cannot be added.')
     return
   }
 
@@ -115,30 +136,28 @@ setInterval(async () => {
 
 // Fetch full ledger on X interval.
 setInterval(async () => {
-  const endpoint = await getLedgerEndpoint()
+  const ourLedger = await BlockStorage.readAsync()
+  const isLedgerValid = await isValidChain(ourLedger)
+
+  let otherLedgers: Block[][] = []
   for (const node of await PeerStorage.readAsync()) {
-    await client.get(`http://${node}/${endpoint}`)
+    await client.get(`http://${node}/get-blocks`)
       .then(async (response: AxiosResponse<Block[]>) => {
-        await BlockStorage.tryAppendAsync(response.data)
+        const ledger = response.data
+        if (!isLedgerValid || (isValidChain(ledger) && ledger.length > ourLedger.length)) {
+          otherLedgers.push(response.data)
+        }
       })
       .catch((err: AxiosError) => onPeerError(node, err))
   }
-}, 5000);
 
-const getLedgerEndpoint = async (): Promise<string> => {
-  const ledger = await BlockStorage.readAsync()
-  let base = `get-blocks`
-  if (ledger.length) {
-    if (!await isValidChain(ledger)) {
-      BlockStorage.deleteFile()
-      console.log('Detected corrupt ledger!')
-      return base
-    }
-    const lastHash = ledger.slice(-1)[0].previousHash
-    base += `/${lastHash}`
+  if (otherLedgers.length) {
+    console.log('Found longer blockchain.')
+    const longestLedger = otherLedgers.sort((a, b) => b.length - a.length)[0]
+    await BlockStorage.empty()
+    await BlockStorage.tryAppendAsync(longestLedger)
   }
-  return base
-}
+}, 5000);
 
 const onPeerError = (peer: string, error: AxiosError) => {
   PeerStorage.remove([peer])

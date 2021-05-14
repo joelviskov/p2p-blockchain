@@ -36,7 +36,7 @@ REQUEST:
 ```
 RESPONSE: `200 - 'Added and distributed.' | 'Ignored.'`
 
-### POST /transaction?ip=:ip
+### POST /new-transaction?ip=:ip
 REQUEST: 
 ```
 { "from": "Joe", "to": "Joosep", "amount": 10 }
